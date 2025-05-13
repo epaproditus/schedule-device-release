@@ -13,7 +13,7 @@ export const removalScheduleOptions: RemovalScheduleOption[] = [
   { id: "2hours", label: "2 hours", value: 120 },
   { id: "4hours", label: "4 hours", value: 240 },
   { id: "8hours", label: "8 hours", value: 480 },
-  { id: "custom", label: "Custom", value: -1 }, // Added custom option
+  { id: "custom", label: "Custom", value: -1 }, // Custom option
 ];
 
 export enum ActionType {
@@ -30,14 +30,19 @@ export const PROFILE_IDS = {
 // Device ID
 export const DEVICE_ID = "1845292";
 
+// Assignment Group ID - This is a placeholder and should be updated if known
+export const ASSIGNMENT_GROUP_ID = "default";
+
 export interface ActionRequest {
   type: ActionType;
   scheduledRemovalTime: number; // time in minutes
 }
 
 // This would normally be in the environment, but for demo purposes showing how it would be used
-// In a real app, this would come from import.meta.env.VITE_SIMPLEMDM_API_KEY or similar
 const API_KEY = import.meta.env.VITE_SIMPLEMDM_API_KEY || "your_api_key_here";
+
+// Track scheduled removals
+const scheduledRemovals: Record<string, number> = {};
 
 export const triggerAction = async (request: ActionRequest): Promise<{ success: boolean; message: string }> => {
   try {
@@ -50,38 +55,64 @@ export const triggerAction = async (request: ActionRequest): Promise<{ success: 
     const postEndpoint = `https://a.simplemdm.com/api/v1/profiles/${profileId}/devices/${DEVICE_ID}`;
     console.log(`POST to: ${postEndpoint}`);
     
-    // In a real implementation, you'd make the actual API calls
-    // const postResponse = await fetch(postEndpoint, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Authorization': `Basic ${btoa(API_KEY + ':')}`,
-    //     'Content-Type': 'application/json'
-    //   }
-    // });
+    // Actual API call implementation
+    const postResponse = await fetch(postEndpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${btoa(API_KEY + ':')}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!postResponse.ok) {
+      const errorData = await postResponse.json();
+      console.error("API Error:", errorData);
+      return {
+        success: false,
+        message: `Failed to trigger action. API returned: ${postResponse.status} ${postResponse.statusText}`
+      };
+    }
     
-    // Schedule the removal
+    // Schedule the removal if a time is specified
     if (request.scheduledRemovalTime > 0) {
       console.log(`Will remove profile in ${request.scheduledRemovalTime} minutes`);
       
-      // In a real implementation, you would set up a server-side scheduled task or use a service
-      // For demo purposes, we'll just log what would happen
       const deleteEndpoint = `https://a.simplemdm.com/api/v1/profiles/${profileId}/devices/${DEVICE_ID}`;
       console.log(`Will DELETE from: ${deleteEndpoint} after ${request.scheduledRemovalTime} minutes`);
       
-      // Simulate the scheduled removal
-      // setTimeout(() => {
-      //   fetch(deleteEndpoint, {
-      //     method: 'DELETE',
-      //     headers: {
-      //       'Authorization': `Basic ${btoa(API_KEY + ':')}`,
-      //       'Content-Type': 'application/json'
-      //     }
-      //   });
-      // }, request.scheduledRemovalTime * 60 * 1000);
+      // Create a unique ID for this removal task
+      const removalId = `${profileId}-${DEVICE_ID}-${Date.now()}`;
+      
+      // Store the timeout ID so it can be canceled if needed
+      const timeoutId = window.setTimeout(async () => {
+        console.log(`Executing scheduled removal: ${removalId}`);
+        
+        try {
+          const deleteResponse = await fetch(deleteEndpoint, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Basic ${btoa(API_KEY + ':')}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (deleteResponse.ok) {
+            console.log(`Successfully removed profile ${profileId} from device ${DEVICE_ID}`);
+          } else {
+            console.error(`Failed to remove profile: ${deleteResponse.status} ${deleteResponse.statusText}`);
+          }
+          
+          // Remove this task from tracking
+          delete scheduledRemovals[removalId];
+          
+        } catch (error) {
+          console.error("Error during scheduled removal:", error);
+        }
+      }, request.scheduledRemovalTime * 60 * 1000);
+      
+      // Track this removal
+      scheduledRemovals[removalId] = timeoutId;
     }
-    
-    // Simulate a successful API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
     
     return { 
       success: true, 
