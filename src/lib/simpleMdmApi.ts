@@ -38,44 +38,64 @@ export interface ActionRequest {
   scheduledRemovalTime: number; // time in minutes
 }
 
-// This would normally be in the environment, but for demo purposes showing how it would be used
-const API_KEY = import.meta.env.VITE_SIMPLEMDM_API_KEY || "your_api_key_here";
+// Backend API URL - can be configured via environment variable
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000/api';
 
 // Track scheduled removals
 const scheduledRemovals: Record<string, number> = {};
 
 export const triggerAction = async (request: ActionRequest): Promise<{ success: boolean; message: string }> => {
   try {
-    console.log(`Making SimpleMDM API call for ${request.type} action`);
-    console.log(`Scheduling removal in ${request.scheduledRemovalTime} minutes`);
+    console.log(`Making API call for ${request.type} action`);
+    console.log(`Will schedule removal in ${request.scheduledRemovalTime} minutes`);
     
     const profileId = PROFILE_IDS[request.type];
     
-    // Due to CORS restrictions, we need to simulate the API call for demonstration
-    // In a real implementation, these API calls would be made from a server-side component
-    // or through a proxy API that has proper CORS headers set up
+    // Call our backend proxy to apply the profile
+    const applyResponse = await fetch(`${BACKEND_URL}/profiles/${profileId}/devices/${DEVICE_ID}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ actionType: request.type })
+    });
     
-    console.log(`Would POST to: https://a.simplemdm.com/api/v1/profiles/${profileId}/devices/${DEVICE_ID}`);
-    console.log(`Using API Key: ${API_KEY.substring(0, 3)}...${API_KEY.substring(API_KEY.length - 3)}`);
+    if (!applyResponse.ok) {
+      const errorData = await applyResponse.json();
+      throw new Error(errorData.message || 'Failed to apply profile');
+    }
     
-    // Simulate a successful API call with a delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const responseData = await applyResponse.json();
     
     // Schedule the removal if a time is specified
     if (request.scheduledRemovalTime > 0) {
-      console.log(`Would remove profile in ${request.scheduledRemovalTime} minutes`);
-      console.log(`Would DELETE from: https://a.simplemdm.com/api/v1/profiles/${profileId}/devices/${DEVICE_ID} after ${request.scheduledRemovalTime} minutes`);
+      console.log(`Will remove profile in ${request.scheduledRemovalTime} minutes`);
       
       // Create a unique ID for this removal task
       const removalId = `${profileId}-${DEVICE_ID}-${Date.now()}`;
       
       // Store the timeout ID so it can be canceled if needed
-      const timeoutId = window.setTimeout(() => {
-        console.log(`Executing scheduled removal simulation: ${removalId}`);
-        console.log(`Would DELETE profile ${profileId} from device ${DEVICE_ID} now`);
+      const timeoutId = window.setTimeout(async () => {
+        console.log(`Executing scheduled removal: ${removalId}`);
         
-        // Remove this task from tracking
-        delete scheduledRemovals[removalId];
+        try {
+          const removeResponse = await fetch(`${BACKEND_URL}/profiles/${profileId}/devices/${DEVICE_ID}`, {
+            method: 'DELETE'
+          });
+          
+          if (removeResponse.ok) {
+            console.log(`Successfully removed profile ${profileId} from device ${DEVICE_ID}`);
+          } else {
+            const errorData = await removeResponse.json();
+            console.error(`Failed to remove profile: ${errorData.message}`);
+          }
+          
+        } catch (error) {
+          console.error("Error during scheduled removal:", error);
+        } finally {
+          // Remove this task from tracking
+          delete scheduledRemovals[removalId];
+        }
       }, request.scheduledRemovalTime * 60 * 1000);
       
       // Track this removal
@@ -88,13 +108,13 @@ export const triggerAction = async (request: ActionRequest): Promise<{ success: 
         request.scheduledRemovalTime > 0 
           ? `Removal scheduled in ${request.scheduledRemovalTime} minutes.`
           : 'No automatic removal scheduled.'
-      } (Note: API call simulated due to CORS restrictions)` 
+      }` 
     };
   } catch (error) {
     console.error("Error triggering action:", error);
     return { 
       success: false, 
-      message: "Failed to trigger action. Please try again. (Note: API calls are simulated for demonstration purposes)" 
+      message: error instanceof Error ? error.message : "Failed to trigger action. Please try again."
     };
   }
 };
